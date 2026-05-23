@@ -1,0 +1,866 @@
+<script>
+'use strict';
+
+// ── Data dari server (di-inject oleh doGet) ──
+const SERVER_EMAIL   = SERVER.userEmail  || '';
+const SERVER_NAME    = SERVER.userName   || '';
+const SERVER_ALLOWED = SERVER.isAllowed  || false;
+const SERVER_ROLE    = SERVER.userRole   || '';
+const SERVER_TOKEN   = SERVER.token      || '';
+
+// ── State global ──
+let pdData    = { rows: [], statusList: [], finalStatusIndex: 0 };
+let pdRows    = [];  // rows yg ditampilkan (bisa filtered)
+let FINAL_IDX = 0;
+let sortCol   = null;
+let sortAsc   = true;
+let adminData = null;
+let confirmCallback = null;
+
+// ── DOM refs ──
+const $ = id => document.getElementById(id);
+
+// ════════════════════════════════════════════
+// TOAST NOTIFICATION
+// ════════════════════════════════════════════
+
+function toast(msg, type = 'info', duration = 3500) {
+  const icons = { success: '✓', error: '✕', info: 'ℹ' };
+  const el    = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.innerHTML = `<span style="font-size:16px">${icons[type] || 'ℹ'}</span><span>${msg}</span>`;
+  $('toast-container').appendChild(el);
+  setTimeout(() => {
+    el.classList.add('toast-out');
+    setTimeout(() => el.remove(), 350);
+  }, duration);
+}
+
+
+// ════════════════════════════════════════════
+// CONFIRM MODAL
+// ════════════════════════════════════════════
+
+function openConfirmModal(msg, sub, onOk, icon = '⚠️', okLabel = 'Ya, Lanjutkan', danger = false) {
+  $('confirmMsg').textContent   = msg;
+  $('confirmSub').textContent   = sub || '';
+  $('confirmIcon').textContent  = icon;
+  confirmCallback               = onOk;
+  const btn = $('confirmOkBtn');
+  btn.textContent = okLabel;
+  btn.className   = 'btn ' + (danger ? 'btn-danger' : 'btn-primary');
+  btn.style.minWidth = '120px';
+  btn.onclick = () => { closeConfirmModal(); if (confirmCallback) confirmCallback(); };
+  $('confirmModal').classList.add('open');
+}
+
+function closeConfirmModal() {
+  $('confirmModal').classList.remove('open');
+  confirmCallback = null;
+}
+
+
+// ════════════════════════════════════════════
+// MSG BAR
+// ════════════════════════════════════════════
+
+function setMsg(text, loading = false) {
+  const el = $('msg');
+  if (!el) return;
+  el.textContent = text;
+  el.style.color = loading ? '#6B7280' : '#374151';
+}
+
+
+// ════════════════════════════════════════════
+// LOAD DATA
+// ════════════════════════════════════════════
+
+function loadData() {
+  setMsg('Memuat data...', true);
+  google.script.run
+    .withSuccessHandler(res => {
+      if (res && (res.code === 'TOKEN_EXPIRED' || res.code === 'NOT_ALLOWED')) {
+        toast('Sesi tidak valid. Mengalihkan ke halaman login...', 'error', 4000);
+        setMsg('Sesi tidak valid — mengalihkan ke login...');
+        setTimeout(() => { top.location.replace(res.loginUrl || location.href.split('?')[0]); }, 2000);
+        return;
+      }
+      if (res && !res.success) {
+        toast(res.message || 'Gagal mengambil data.', 'error');
+        setMsg(res.message || 'Gagal mengambil data.');
+        return;
+      }
+      pdData    = res || { rows: [], statusList: [], finalStatusIndex: 0 };
+      pdRows    = (pdData.rows || []).slice();
+      FINAL_IDX = pdData.finalStatusIndex || 0;
+
+      rebuildStatusFilter();
+      rebuildDashboardCards(pdRows, pdData.rows);
+      rebuildTable();
+      rebuildCardView();
+      setMsg('Data dimuat. Total: ' + pdRows.length + ' request.');
+    })
+    .withFailureHandler(err => {
+      toast('Gagal mengambil data dari server.', 'error');
+      setMsg('Error: ' + (err.message || err));
+    })
+    .getPDDataJson(SERVER_TOKEN);
+}
+
+
+// ════════════════════════════════════════════
+// SUMMARY CARDS
+// ════════════════════════════════════════════
+
+function rebuildDashboardCards(filtered, all) {
+  const count = (arr, fn) => (arr || []).filter(fn).length;
+  const dec   = r => (r.decisionStatus || '').toLowerCase();
+  const isNotOk = r => dec(r) === 'not ok' || dec(r) === 'notok';
+  const isFinal = r => dec(r) === 'ok' && FINAL_IDX && r.currentIndex >= FINAL_IDX;
+
+  const total     = (all || []).length;
+  const notOk     = count(all, isNotOk);
+  const finalOk   = count(all, isFinal);
+  const onGoing   = Math.max(0, total - notOk - finalOk);
+
+  const fTotal    = (filtered || []).length;
+  const fNotOk    = count(filtered, isNotOk);
+  const fFinal    = count(filtered, isFinal);
+  const fOnGoing  = Math.max(0, fTotal - fNotOk - fFinal);
+
+  function setCard(valId, subId, global, filt) {
+    $(valId).textContent = global;
+    const sub = $(subId);
+    if (sub) sub.textContent = (filt !== global) ? 'filter: ' + filt : '';
+  }
+
+  setCard('cardTotalReq',  'cardTotalSub',  total,   fTotal);
+  setCard('cardOnGoingOk', 'cardOnGoingSub', onGoing, fOnGoing);
+  setCard('cardNotOk',     'cardNotOkSub',  notOk,   fNotOk);
+  setCard('cardFinalOk',   'cardFinalSub',  finalOk, fFinal);
+}
+
+
+// ════════════════════════════════════════════
+// FILTER
+// ════════════════════════════════════════════
+
+function rebuildStatusFilter() {
+  const sel     = $('filterStatus');
+  const current = sel.value;
+  sel.innerHTML = '<option value="">Status: Semua</option>';
+  const seen = new Set();
+  (pdData.statusList || []).forEach(s => {
+    if (!s.name || seen.has(s.name)) return;
+    seen.add(s.name);
+    const o = document.createElement('option');
+    o.value = o.textContent = s.name;
+    sel.appendChild(o);
+  });
+  if (current) sel.value = current;
+}
+
+function applyFilter() {
+  const text   = ($('filterText').value || '').toLowerCase().trim();
+  const status = $('filterStatus').value || '';
+  const sla    = $('filterSla').value    || '';
+  const owner  = $('filterMine').checked;
+
+  pdRows = (pdData.rows || []).filter(r => {
+    if (owner && r.requesterEmail !== SERVER_EMAIL) return false;
+    if (status && r.status !== status) return false;
+    if (sla    && r.slaStatus !== sla) return false;
+    if (text) {
+      const haystack = [r.id, r.namaProduk, r.requesterName, r.requesterEmail].join(' ').toLowerCase();
+      if (!haystack.includes(text)) return false;
+    }
+    return true;
+  });
+
+  setMsg('Filter aktif. Menampilkan: ' + pdRows.length + ' dari ' + (pdData.rows || []).length);
+  rebuildDashboardCards(pdRows, pdData.rows);
+  rebuildTable();
+  rebuildCardView();
+}
+
+function resetFilter() {
+  $('filterText').value   = '';
+  $('filterStatus').value = '';
+  $('filterSla').value    = '';
+  $('filterMine').checked = false;
+  pdRows = (pdData.rows || []).slice();
+  setMsg('Filter direset. Total: ' + pdRows.length + ' request.');
+  rebuildDashboardCards(pdRows, pdData.rows);
+  rebuildTable();
+  rebuildCardView();
+}
+
+
+// ════════════════════════════════════════════
+// TABLE COLUMNS CONFIG
+// ════════════════════════════════════════════
+
+const TABLE_COLS = [
+  { key: 'id',              label: 'ID',                   sortable: true,  cls: '' },
+  { key: 'tanggalCreate',   label: 'Tanggal Create',       sortable: true,  cls: '' },
+  { key: 'requesterEmail',  label: 'Requester Email',      sortable: true,  cls: '' },
+  { key: 'requesterName',   label: 'Requester Name',       sortable: true,  cls: '' },
+  { key: 'namaProduk',      label: 'Nama Produk / Project',sortable: true,  cls: '' },
+  { key: 'kategori',        label: 'Kategori',             sortable: true,  cls: '' },
+  { key: 'deskripsi',       label: 'Deskripsi',            sortable: false, cls: 'col-deskripsi' },
+  { key: 'estimasiQty',     label: 'Est. Qty',             sortable: true,  cls: '' },
+  { key: 'estimasiOrder',   label: 'Est. Order Date',      sortable: true,  cls: '' },
+  { key: 'lppLink',         label: 'LPP',                  sortable: false, cls: '' },
+  { key: 'status',          label: 'Status',               sortable: true,  cls: '' },
+  { key: 'slaStatus',       label: 'SLA',                  sortable: true,  cls: '' },
+  { key: 'lastStatusUpdate',label: 'Last Update',          sortable: true,  cls: '' },
+  { key: 'lastUpdatedBy',   label: 'Updated By',           sortable: false, cls: 'col-updatedby' },
+  { key: 'statusNote',      label: 'Catatan',              sortable: false, cls: 'col-statusnote' },
+  { key: 'decisionStatus',  label: 'Decision',             sortable: true,  cls: '' }
+];
+
+
+// ════════════════════════════════════════════
+// SORT
+// ════════════════════════════════════════════
+
+function handleSort(key) {
+  if (sortCol === key) sortAsc = !sortAsc;
+  else { sortCol = key; sortAsc = true; }
+
+  pdRows.sort((a, b) => {
+    const av = String(a[key] || '').toLowerCase();
+    const bv = String(b[key] || '').toLowerCase();
+    if (av < bv) return sortAsc ? -1 : 1;
+    if (av > bv) return sortAsc ?  1 : -1;
+    return 0;
+  });
+  rebuildTable();
+  rebuildCardView();
+}
+
+
+// ════════════════════════════════════════════
+// BUILD TABLE (desktop)
+// ════════════════════════════════════════════
+
+function rebuildTable() {
+  const thead = $('theadPD');
+  const tbody = $('tbodyPD');
+  const tbl   = $('tblPD');
+  const empty = $('emptyState');
+
+  if (!pdRows.length) {
+    tbl.style.display   = 'none';
+    empty.style.display = 'block';
+    return;
+  }
+  empty.style.display = 'none';
+
+  // ── Header ──
+  thead.innerHTML = '';
+  const tr = document.createElement('tr');
+
+  TABLE_COLS.forEach(col => {
+    const th = document.createElement('th');
+    th.className = col.cls;
+    if (col.sortable) {
+      th.classList.add('sortable');
+      th.onclick = () => handleSort(col.key);
+      if (sortCol === col.key) th.classList.add(sortAsc ? 'sort-asc' : 'sort-desc');
+    }
+    th.innerHTML = col.label + (col.sortable ? '<span class="sort-icon"></span>' : '');
+    tr.appendChild(th);
+  });
+
+  const thAction = document.createElement('th');
+  thAction.textContent = 'Aksi';
+  tr.appendChild(thAction);
+  thead.appendChild(tr);
+
+  // ── Rows ──
+  tbody.innerHTML = '';
+  pdRows.forEach(row => {
+    const tr   = document.createElement('tr');
+    const dec  = (row.decisionStatus || '').toLowerCase();
+    const stat = (row.status || '').toLowerCase();
+
+    if (row.isArchived)                                     tr.className = 'row-archived';
+    else if (dec === 'not ok' || dec === 'notok')          tr.className = 'row-notok';
+    else if (dec === 'ok' && stat.startsWith('final'))     tr.className = 'row-final';
+    else if (row.slaStatus === 'overdue')                  tr.className = 'row-overdue';
+
+    TABLE_COLS.forEach(col => {
+      const td  = document.createElement('td');
+      td.className = col.cls;
+      const val = row[col.key];
+
+      if (col.key === 'id') {
+        const a = document.createElement('span');
+        a.className   = 'id-link';
+        a.textContent = val;
+        a.onclick     = () => openHistoryModal(row);
+        td.appendChild(a);
+
+      } else if (col.key === 'lppLink') {
+        if (val) {
+          const a = document.createElement('a');
+          a.href = val; a.target = '_blank'; a.textContent = 'Open';
+          td.appendChild(a);
+        } else { td.textContent = '—'; }
+
+      } else if (col.key === 'status') {
+        if (val) {
+          const b = document.createElement('span');
+          b.className = 'badge ' + (stat.startsWith('final') ? 'badge-ok' : 'badge-ongoing');
+          b.textContent = val;
+          td.appendChild(b);
+        } else { td.textContent = '—'; }
+
+      } else if (col.key === 'slaStatus') {
+        const map = {
+          overdue:   ['badge sla-overdue', '⚠ Overdue'],
+          warning:   ['badge sla-warning', '⏱ Warning'],
+          ok:        ['badge sla-ok',      '✓ On Track'],
+          final:     ['badge sla-final',   '✓ Final'],
+          new:       ['badge sla-new',     '● New'],
+          cancelled: ['badge badge-cancelled', '✕ Cancelled']
+        };
+        const [cls, lbl] = map[val] || ['', val || '—'];
+        if (cls) {
+          const b = document.createElement('span');
+          b.className = cls; b.textContent = lbl;
+          td.appendChild(b);
+        } else { td.textContent = lbl; }
+
+      } else if (col.key === 'decisionStatus') {
+        if (val) {
+          const dv = val.toLowerCase();
+          const b  = document.createElement('span');
+          b.className = 'badge ' + (dv === 'ok' ? 'badge-ok' : dv.includes('not') ? 'badge-notok' : 'badge-ongoing');
+          b.textContent = val;
+          td.appendChild(b);
+        } else { td.textContent = '—'; }
+
+      } else {
+        td.textContent = (val === null || val === undefined || val === '') ? '' : val;
+      }
+
+      tr.appendChild(td);
+    });
+
+    // Action cell
+    const tdAct = document.createElement('td');
+    const cell  = document.createElement('div');
+    cell.className = 'action-cell';
+
+    if (!row.isArchived) {
+      if (row.canUpdate) {
+        const btn = document.createElement('button');
+        btn.className = 'btn-update';
+        btn.textContent = 'Update: ' + row.nextStatusName;
+        btn.onclick = () => openConfirmModal(
+          'Update status ke "' + row.nextStatusName + '"?',
+          'ID: ' + row.id,
+          () => openStatusModal(row)
+        );
+        cell.appendChild(btn);
+      }
+
+      const canEdit   = SERVER_ROLE === 'admin' || row.requesterEmail === SERVER_EMAIL;
+      const canCancel = SERVER_ROLE === 'admin' || row.requesterEmail === SERVER_EMAIL;
+
+      if (canEdit) {
+        const b = document.createElement('button');
+        b.className = 'btn-update btn-edit btn-sm'; b.textContent = 'Edit';
+        b.onclick = () => openEditModal(row);
+        cell.appendChild(b);
+      }
+      if (canCancel) {
+        const b = document.createElement('button');
+        b.className = 'btn-update btn-cancel btn-sm'; b.textContent = 'Cancel';
+        b.onclick = () => openCancelModal(row);
+        cell.appendChild(b);
+      }
+    } else {
+      const span = document.createElement('span');
+      span.style.cssText = 'font-size:11px;color:var(--c-gray-muted)';
+      span.textContent = 'Dibatalkan';
+      cell.appendChild(span);
+    }
+
+    if (!cell.children.length) { const s = document.createElement('span'); s.textContent = '—'; cell.appendChild(s); }
+    tdAct.appendChild(cell);
+    tr.appendChild(tdAct);
+    tbody.appendChild(tr);
+  });
+
+  tbl.style.display = 'table';
+}
+
+
+// ════════════════════════════════════════════
+// CARD VIEW (mobile)
+// ════════════════════════════════════════════
+
+function rebuildCardView() {
+  const container = $('cardList');
+  container.innerHTML = '';
+
+  if (!pdRows.length) {
+    container.innerHTML = '<div class="empty-state">Belum ada data.</div>';
+    return;
+  }
+
+  pdRows.forEach(row => {
+    const dec    = (row.decisionStatus || '').toLowerCase();
+    const isFin  = dec === 'ok' && row.status && row.status.toLowerCase().startsWith('final');
+    const isNotOk = dec === 'not ok' || dec === 'notok';
+
+    const card = document.createElement('div');
+    card.className = 'pd-card' +
+      (isNotOk ? ' notok' : '') +
+      (isFin   ? ' final' : '') +
+      (row.slaStatus === 'overdue' ? ' overdue' : '') +
+      (row.isArchived ? ' archived' : '');
+
+    const slaMap = { overdue:'⚠ Overdue', warning:'⏱ Warning', ok:'✓ On Track', final:'✓ Final', new:'● New', cancelled:'✕ Cancelled' };
+
+    card.innerHTML = `
+      <div class="pd-card-id" onclick="openHistoryModal(${JSON.stringify(row).replace(/</g,'&lt;')})">${row.id}</div>
+      <div class="pd-card-title">${row.namaProduk || '—'}</div>
+      <div class="pd-card-meta">
+        ${row.requesterName || row.requesterEmail || ''}<br>
+        Kategori: ${row.kategori || '—'} &nbsp;|&nbsp; Qty: ${row.estimasiQty || '—'}<br>
+        Status: <b>${row.status || 'New Request'}</b>
+        &nbsp;${row.decisionStatus ? '| Decision: <b>' + row.decisionStatus + '</b>' : ''}<br>
+        SLA: ${slaMap[row.slaStatus] || '—'} &nbsp;|&nbsp; Update: ${row.lastStatusUpdate || '—'}
+      </div>
+      <div class="pd-card-footer" id="cardFooter_${row.id.replace(/-/g,'_')}"></div>
+    `;
+    container.appendChild(card);
+
+    const footer = card.querySelector('.pd-card-footer');
+    if (!row.isArchived) {
+      if (row.canUpdate) {
+        const b = document.createElement('button');
+        b.className = 'btn btn-primary btn-sm';
+        b.textContent = 'Update: ' + row.nextStatusName;
+        b.onclick = () => openStatusModal(row);
+        footer.appendChild(b);
+      }
+      if (SERVER_ROLE === 'admin' || row.requesterEmail === SERVER_EMAIL) {
+        const b = document.createElement('button');
+        b.className = 'btn btn-secondary btn-sm'; b.textContent = 'Edit';
+        b.onclick = () => openEditModal(row);
+        footer.appendChild(b);
+      }
+    }
+  });
+}
+
+
+// ════════════════════════════════════════════
+// MODAL: TAMBAH PD
+// ════════════════════════════════════════════
+
+function openPdModal() {
+  $('pdForm').reset();
+  $('pdToken').value          = SERVER_TOKEN;
+  $('pdRequesterDisplay').value = SERVER_NAME + ' (' + SERVER_EMAIL + ')';
+  $('pdRequesterEmail').value = SERVER_EMAIL;
+  $('pdRequesterName').value  = SERVER_NAME;
+  $('pdModal').classList.add('open');
+}
+function closePdModal() { $('pdModal').classList.remove('open'); }
+
+function handlePdSubmit(form) {
+  const btn = $('pdSubmitBtn');
+  btn.disabled = true;
+  setMsg('Menyimpan request...', true);
+
+  google.script.run
+    .withSuccessHandler(res => {
+      btn.disabled = false;
+      if (res && res.success) {
+        toast('Request berhasil dibuat: ' + (res.data && res.data.id ? res.data.id : ''), 'success');
+        closePdModal();
+        loadData();
+      } else {
+        toast(res.message || 'Gagal menyimpan.', 'error');
+        setMsg(res.message || 'Gagal menyimpan.');
+      }
+    })
+    .withFailureHandler(err => {
+      btn.disabled = false;
+      toast('Error: ' + (err.message || err), 'error');
+    })
+    .submitPDForm(form);
+}
+
+
+// ════════════════════════════════════════════
+// MODAL: UPDATE STATUS
+// ════════════════════════════════════════════
+
+function openStatusModal(row) {
+  $('fStatusId').value         = row.id;
+  $('fStatusNamaProduk').value = row.namaProduk;
+  $('fStatusStepName').value   = row.nextStatusName;
+  $('fStatusOrderIndex').value = row.nextIndex || '';
+  $('statusToken').value       = SERVER_TOKEN;
+  $('fStatusKeterangan').value = '';
+  document.querySelectorAll('#statusForm input[name="result"]').forEach(r => { r.checked = r.value === 'OK'; });
+  $('statusModal').classList.add('open');
+}
+function closeStatusModal() { $('statusModal').classList.remove('open'); }
+
+function handleStatusSubmit(form) {
+  setMsg('Menyimpan status...', true);
+  google.script.run
+    .withSuccessHandler(res => {
+      if (res && res.success) {
+        toast('Status berhasil disimpan.', 'success');
+        closeStatusModal();
+        loadData();
+      } else {
+        toast(res.message || 'Gagal menyimpan status.', 'error');
+        setMsg(res.message || 'Gagal menyimpan.');
+      }
+    })
+    .withFailureHandler(err => { toast('Error: ' + (err.message || err), 'error'); })
+    .submitPDStatus(form);
+}
+
+
+// ════════════════════════════════════════════
+// MODAL: HISTORY
+// ════════════════════════════════════════════
+
+function openHistoryModal(row) {
+  $('historyModalTitle').textContent = 'Riwayat: ' + row.id;
+  $('historyModalSub').textContent   = row.namaProduk || '';
+  $('historyContent').innerHTML      = '<div class="empty-state" style="padding:24px">Memuat...</div>';
+  $('historyModal').classList.add('open');
+
+  google.script.run
+    .withSuccessHandler(res => {
+      if (!res || !res.success) {
+        $('historyContent').innerHTML = '<div class="empty-state">Gagal memuat riwayat.</div>';
+        return;
+      }
+      const list = res.data || [];
+      if (!list.length) {
+        $('historyContent').innerHTML = '<div class="empty-state">Belum ada history status untuk request ini.</div>';
+        return;
+      }
+      $('historyContent').innerHTML = '<div class="timeline">' + list.map(item => {
+        const dec   = (item.result || '').toLowerCase();
+        const dotCls = dec === 'ok' ? 'ok' : dec.includes('not') ? 'notok' : 'pending';
+        const icon   = dec === 'ok' ? '✓' : dec.includes('not') ? '✕' : '?';
+        return `
+          <div class="timeline-item">
+            <div class="timeline-dot ${dotCls}">${icon}</div>
+            <div class="timeline-content">
+              <div class="timeline-step">
+                ${item.statusName}
+                ${item.result ? '<span class="badge ' + (dec==='ok'?'badge-ok':'badge-notok') + '" style="margin-left:8px">' + item.result + '</span>' : ''}
+              </div>
+              <div class="timeline-meta">${item.tanggal || '—'} · ${item.updatedBy || '—'}</div>
+              ${item.keterangan ? '<div class="timeline-note">' + item.keterangan + '</div>' : ''}
+            </div>
+          </div>`;
+      }).join('') + '</div>';
+    })
+    .withFailureHandler(() => {
+      $('historyContent').innerHTML = '<div class="empty-state">Gagal memuat riwayat.</div>';
+    })
+    .getPDHistory(row.id, SERVER_TOKEN);
+}
+function closeHistoryModal() { $('historyModal').classList.remove('open'); }
+
+
+// ════════════════════════════════════════════
+// MODAL: EDIT
+// ════════════════════════════════════════════
+
+function openEditModal(row) {
+  $('editToken').value         = SERVER_TOKEN;
+  $('editId').value            = row.id;
+  $('editIdDisplay').value     = row.id;
+  $('editNamaProduk').value    = row.namaProduk || '';
+  $('editDeskripsi').value     = row.deskripsi  || '';
+  $('editEstimasiQty').value   = row.estimasiQty || '';
+  $('editEstimasiOrder').value = row.estimasiOrder || '';
+  $('editModal').classList.add('open');
+}
+function closeEditModal() { $('editModal').classList.remove('open'); }
+
+function handleEditSubmit(form) {
+  setMsg('Menyimpan perubahan...', true);
+  google.script.run
+    .withSuccessHandler(res => {
+      if (res && res.success) {
+        toast('Request berhasil diperbarui.', 'success');
+        closeEditModal();
+        loadData();
+      } else {
+        toast(res.message || 'Gagal menyimpan.', 'error');
+      }
+    })
+    .withFailureHandler(err => { toast('Error: ' + (err.message || err), 'error'); })
+    .updatePDForm(form);
+}
+
+
+// ════════════════════════════════════════════
+// MODAL: CANCEL
+// ════════════════════════════════════════════
+
+function openCancelModal(row) {
+  $('cancelToken').value         = SERVER_TOKEN;
+  $('cancelId').value            = row.id;
+  $('cancelIdDisplay').textContent  = row.id;
+  $('cancelProdukDisplay').textContent = row.namaProduk || '';
+  $('cancelReason').value        = '';
+  $('cancelModal').classList.add('open');
+}
+function closeCancelModal() { $('cancelModal').classList.remove('open'); }
+
+function handleCancelSubmit(form) {
+  setMsg('Membatalkan request...', true);
+  google.script.run
+    .withSuccessHandler(res => {
+      if (res && res.success) {
+        toast(res.message || 'Request berhasil dibatalkan.', 'success');
+        closeCancelModal();
+        loadData();
+      } else {
+        toast(res.message || 'Gagal membatalkan.', 'error');
+      }
+    })
+    .withFailureHandler(err => { toast('Error: ' + (err.message || err), 'error'); })
+    .cancelPD(form);
+}
+
+
+// ════════════════════════════════════════════
+// EXPORT CSV
+// ════════════════════════════════════════════
+
+function exportData() {
+  toast('Menyiapkan export...', 'info');
+  google.script.run
+    .withSuccessHandler(res => {
+      if (!res || !res.success || !res.data) {
+        toast('Gagal export.', 'error'); return;
+      }
+      const { csv, filename } = res.data;
+      const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href = url; a.download = filename; a.click();
+      URL.revokeObjectURL(url);
+      toast('Export selesai: ' + filename, 'success');
+    })
+    .withFailureHandler(err => { toast('Error: ' + (err.message || err), 'error'); })
+    .exportPDData(SERVER_TOKEN);
+}
+
+
+// ════════════════════════════════════════════
+// ADMIN PANEL
+// ════════════════════════════════════════════
+
+function openAdminModal() {
+  $('adminModal').classList.add('open');
+  loadAdminData();
+}
+function closeAdminModal() { $('adminModal').classList.remove('open'); }
+
+function switchAdminTab(tab, btn) {
+  document.querySelectorAll('.admin-tab').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.admin-panel-section').forEach(s => s.classList.remove('active'));
+  btn.classList.add('active');
+  $('adminTab' + tab.charAt(0).toUpperCase() + tab.slice(1)).classList.add('active');
+}
+
+function loadAdminData() {
+  google.script.run
+    .withSuccessHandler(res => {
+      if (!res || !res.success) { toast('Gagal memuat admin data.', 'error'); return; }
+      adminData = res.data;
+      renderAdminUsers(adminData.users || []);
+      renderAdminConfig(adminData.configItems || []);
+      renderAdminLogs(adminData.logs || []);
+    })
+    .withFailureHandler(err => { toast('Error: ' + (err.message || err), 'error'); })
+    .getAdminData(SERVER_TOKEN);
+}
+
+function renderAdminUsers(users) {
+  $('adminUserCount').textContent = users.length + ' user terdaftar';
+  const tbody = $('adminUsersTbody');
+  if (!users.length) { tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--c-gray-muted)">Tidak ada user.</td></tr>'; return; }
+
+  tbody.innerHTML = users.map(u => `
+    <tr>
+      <td>${u.email}</td>
+      <td>${u.name || '—'}</td>
+      <td>
+        <select onchange="adminChangeField('${u.email}','role',this.value)" style="padding:3px 6px;font-size:11px;width:auto">
+          ${['viewer','requester','approver','internal','admin'].map(r =>
+            `<option value="${r}" ${u.role===r?'selected':''}>${r}</option>`).join('')}
+        </select>
+      </td>
+      <td>
+        <span class="status-chip ${(u.status||'Active').toLowerCase()}">${u.status||'Active'}</span>
+      </td>
+      <td style="font-size:11px">${u.lastLogin || '—'}</td>
+      <td style="font-size:11px">${u.tokenExpiredAt || '—'}</td>
+      <td>
+        <div style="display:flex;gap:4px">
+          <button class="btn btn-secondary btn-sm" onclick="adminToggleStatus('${u.email}','${u.status||'Active'}')">
+            ${(u.status||'Active')==='Active' ? 'Nonaktifkan' : 'Aktifkan'}
+          </button>
+          <button class="btn btn-danger btn-sm" onclick="adminResetTok('${u.email}')">Reset Token</button>
+        </div>
+      </td>
+    </tr>`).join('');
+}
+
+function renderAdminConfig(items) {
+  const tbody = $('adminConfigTbody');
+  if (!items.length) { tbody.innerHTML = '<tr><td colspan="2" style="text-align:center;padding:16px;color:var(--c-gray-muted)">Config sheet kosong.</td></tr>'; return; }
+  tbody.innerHTML = items.map(it =>
+    `<tr><td style="font-family:monospace;font-size:11px">${it.key}</td><td style="font-size:11px">${it.value}</td></tr>`
+  ).join('');
+}
+
+function renderAdminLogs(logs) {
+  const tbody = $('adminLogsTbody');
+  if (!logs.length) { tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:16px;color:var(--c-gray-muted)">Tidak ada log.</td></tr>'; return; }
+  tbody.innerHTML = logs.map(l =>
+    `<tr>
+      <td style="font-size:11px;white-space:nowrap">${l.timestamp}</td>
+      <td style="font-size:11px">${l.userEmail}</td>
+      <td style="font-size:11px;font-weight:700">${l.action}</td>
+      <td style="font-size:11px;max-width:280px;overflow:hidden;text-overflow:ellipsis">${l.detail}</td>
+      <td><span class="status-chip ${l.status==='OK'?'active':'inactive'}">${l.status}</span></td>
+    </tr>`
+  ).join('');
+}
+
+function adminChangeField(email, field, value) {
+  google.script.run
+    .withSuccessHandler(res => {
+      if (res && res.success) { toast(res.message, 'success'); loadAdminData(); }
+      else toast(res.message || 'Gagal.', 'error');
+    })
+    .withFailureHandler(err => toast('Error: ' + (err.message||err), 'error'))
+    .adminUpdateUser(SERVER_TOKEN, { email, field, value });
+}
+
+function adminToggleStatus(email, currentStatus) {
+  const newStatus = currentStatus === 'Active' ? 'Inactive' : 'Active';
+  openConfirmModal(
+    newStatus === 'Inactive' ? 'Nonaktifkan akun ini?' : 'Aktifkan kembali akun ini?',
+    email,
+    () => adminChangeField(email, 'status', newStatus),
+    newStatus === 'Inactive' ? '⚠️' : '✅',
+    newStatus === 'Inactive' ? 'Ya, Nonaktifkan' : 'Ya, Aktifkan',
+    newStatus === 'Inactive'
+  );
+}
+
+function adminResetTok(email) {
+  openConfirmModal(
+    'Reset token ' + email + '?',
+    'User akan diminta login ulang.',
+    () => {
+      google.script.run
+        .withSuccessHandler(res => {
+          if (res && res.success) { toast(res.message, 'success'); loadAdminData(); }
+          else toast(res.message || 'Gagal.', 'error');
+        })
+        .withFailureHandler(err => toast('Error: ' + (err.message||err), 'error'))
+        .adminResetToken(SERVER_TOKEN, email);
+    },
+    '🔑', 'Reset Token', true
+  );
+}
+
+function openAddUserForm() {
+  $('addUserForm').style.display = 'block';
+  $('newUserEmail').focus();
+}
+
+function submitAddUser() {
+  const payload = {
+    email:  ($('newUserEmail').value||'').trim(),
+    name:   ($('newUserName').value||'').trim(),
+    role:   $('newUserRole').value,
+    status: $('newUserStatus').value
+  };
+  if (!payload.email) { toast('Email tidak boleh kosong.', 'error'); return; }
+  google.script.run
+    .withSuccessHandler(res => {
+      if (res && res.success) {
+        toast(res.message, 'success');
+        $('addUserForm').style.display = 'none';
+        $('newUserEmail').value = $('newUserName').value = '';
+        loadAdminData();
+      } else { toast(res.message || 'Gagal menambah user.', 'error'); }
+    })
+    .withFailureHandler(err => toast('Error: ' + (err.message||err), 'error'))
+    .adminAddUser(SERVER_TOKEN, payload);
+}
+
+function submitAdminConfig() {
+  const key   = ($('cfgKey').value   || '').trim();
+  const value = ($('cfgValue').value || '').trim();
+  if (!key) { toast('Key tidak boleh kosong.', 'error'); return; }
+  google.script.run
+    .withSuccessHandler(res => {
+      if (res && res.success) {
+        toast(res.message, 'success');
+        $('cfgKey').value = $('cfgValue').value = '';
+        loadAdminData();
+      } else { toast(res.message || 'Gagal.', 'error'); }
+    })
+    .withFailureHandler(err => toast('Error: ' + (err.message||err), 'error'))
+    .adminUpdateConfig(SERVER_TOKEN, { key, value });
+}
+
+
+// ════════════════════════════════════════════
+// CLOSE ON OVERLAY CLICK
+// ════════════════════════════════════════════
+
+['pdModal','statusModal','historyModal','editModal','cancelModal','confirmModal','adminModal'].forEach(id => {
+  $(id).addEventListener('click', e => { if (e.target === $(id)) $(id).classList.remove('open'); });
+});
+
+
+// ════════════════════════════════════════════
+// INIT
+// ════════════════════════════════════════════
+
+(function init() {
+  // Sembunyikan tab Admin jika bukan admin
+  if (SERVER_ROLE !== 'admin') {
+    const adminTabBtn = $('adminTabBtn');
+    if (adminTabBtn) adminTabBtn.style.display = 'none';
+    const adminPanelBtn = $('adminPanelBtn');
+    if (adminPanelBtn) adminPanelBtn.style.display = 'none';
+  }
+
+  if (!SERVER_ALLOWED) {
+    setMsg('Akun Anda tidak terdaftar atau tidak aktif. Hubungi administrator.');
+    return;
+  }
+
+  loadData();
+})();
+</script>

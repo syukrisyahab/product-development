@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <base target="_top">
+  <?!= include('_styles') ?>
+</head>
+<body>
+
+<!-- Server data — di-inject oleh doGet() -->
+<script>
+  const SERVER = {
+    userEmail: <?= JSON.stringify(userEmail) ?>,
+    userName:  <?= JSON.stringify(userName) ?>,
+    isAllowed: <?= isAllowed ? true : false ?>,
+    userRole:  <?= JSON.stringify(userRole) ?>,
+    token:     <?= JSON.stringify(token) ?>
+  };
+</script>
+
+<div class="app-shell">
+
+  <!-- ── HEADER ── -->
+  <div class="app-header">
+    <div>
+      <h1 class="app-title">Product Development</h1>
+      <div class="app-subtitle">Tracking dashboard — request, workflow approval, final mass production</div>
+    </div>
+    <div class="user-info">
+      Login sebagai:<br>
+      <b><?= userName ?></b><br>
+      <span style="font-size:11px;opacity:.85"><?= userEmail ?></span><br>
+      <? if (isAllowed) { ?>
+        <span class="access-pill"><?= userRole || 'Allowed' ?></span>
+      <? } else { ?>
+        <span class="access-pill not-allowed">Not Registered</span>
+      <? } ?>
+    </div>
+  </div>
+
+  <!-- ── TOOLBAR ── -->
+  <div class="toolbar">
+    <div class="toolbar-left">
+      <button onclick="openPdModal()" class="btn btn-primary">+ Tambah Product Dev</button>
+      <button onclick="loadData()"    class="btn btn-secondary">↻ Refresh</button>
+      <button onclick="exportData()"  class="btn btn-secondary">↓ Export CSV</button>
+      <? if (userRole === 'admin') { ?>
+        <button id="adminPanelBtn" onclick="openAdminModal()" class="btn btn-secondary">⚙ Admin Panel</button>
+      <? } ?>
+    </div>
+  </div>
+
+  <!-- ── STATUS BAR ── -->
+  <div id="msg">Memuat data...</div>
+
+  <!-- ── SUMMARY CARDS ── -->
+  <div class="card-row">
+    <div class="card">
+      <div class="card-title">Total Request</div>
+      <div class="card-value" id="cardTotalReq">0</div>
+      <div class="card-sub"   id="cardTotalSub"></div>
+    </div>
+    <div class="card">
+      <div class="card-title">On Going OK</div>
+      <div class="card-value" id="cardOnGoingOk">0</div>
+      <div class="card-sub"   id="cardOnGoingSub"></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Not OK</div>
+      <div class="card-value" id="cardNotOk">0</div>
+      <div class="card-sub"   id="cardNotOkSub"></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Final (Mass Pro OK)</div>
+      <div class="card-value" id="cardFinalOk">0</div>
+      <div class="card-sub"   id="cardFinalSub"></div>
+    </div>
+  </div>
+
+  <!-- ── FILTER ROW ── -->
+  <div class="filter-row">
+    <input  id="filterText"   type="text"   placeholder="Cari ID / Produk / Requester…">
+    <select id="filterStatus">
+      <option value="">Status: Semua</option>
+    </select>
+    <select id="filterSla">
+      <option value="">SLA: Semua</option>
+      <option value="overdue">⚠ Overdue</option>
+      <option value="warning">⏱ Warning</option>
+      <option value="ok">✓ On Track</option>
+      <option value="new">● New</option>
+      <option value="final">✓ Final</option>
+    </select>
+    <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:700;color:var(--c-gray-text);cursor:pointer">
+      <input type="checkbox" id="filterMine" style="width:auto"> Milik Saya
+    </label>
+    <button onclick="applyFilter()"  class="btn btn-primary">Filter</button>
+    <button onclick="resetFilter()"  class="btn btn-secondary">Reset</button>
+  </div>
+
+  <!-- ── TABLE (desktop) ── -->
+  <div class="table-wrap">
+    <table id="tblPD" style="display:none">
+      <thead id="theadPD"></thead>
+      <tbody id="tbodyPD"></tbody>
+    </table>
+    <div id="emptyState" class="empty-state" style="display:none">
+      Belum ada data Product Development yang sesuai filter.
+    </div>
+  </div>
+
+  <!-- ── CARD VIEW (mobile) ── -->
+  <div id="cardList"></div>
+
+</div>
+
+<!-- ── MODALS ── -->
+<?!= include('_modals') ?>
+
+<!-- ── SCRIPTS ── -->
+<?!= include('_script') ?>
+
+</body>
+</html>

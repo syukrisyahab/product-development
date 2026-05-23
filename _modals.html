@@ -1,0 +1,325 @@
+<!-- ══════════════════════════════════════════
+     MODAL: TAMBAH PRODUCT DEVELOPMENT
+     ══════════════════════════════════════════ -->
+<div id="pdModal" class="modal-overlay">
+  <div class="modal-box modal-box-md">
+    <div class="modal-header">
+      <h3>Tambah Product Development</h3>
+      <button class="modal-close" onclick="closePdModal()">×</button>
+    </div>
+    <form id="pdForm" onsubmit="handlePdSubmit(this); return false;" enctype="multipart/form-data">
+      <div class="modal-body">
+        <label>Requester</label>
+        <input type="text" id="pdRequesterDisplay" disabled>
+        <input type="hidden" name="token"          id="pdToken">
+        <input type="hidden" name="requesterEmail" id="pdRequesterEmail">
+        <input type="hidden" name="requesterName"  id="pdRequesterName">
+
+        <label>Nama Produk / Project <span style="color:var(--c-red)">*</span></label>
+        <input type="text" name="namaProduk" required>
+
+        <label>Kategori <span style="color:var(--c-red)">*</span></label>
+        <select name="kategori" required>
+          <option value="">— Pilih —</option>
+          <option value="Retail">Retail</option>
+          <option value="Project">Project</option>
+        </select>
+
+        <label>Deskripsi / Keterangan</label>
+        <textarea name="deskripsi" rows="3"></textarea>
+
+        <label>Estimasi Qty</label>
+        <input type="number" name="estimasiQty" min="0" step="1">
+
+        <label>Estimasi Order Date</label>
+        <input type="date" name="estimasiOrder">
+
+        <label>LPP Document</label>
+        <input type="file" name="lppFile" accept=".pdf,image/*,application/*">
+        <p class="field-hint">File akan disimpan ke Google Drive. Format: PDF atau gambar.</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" onclick="closePdModal()" class="btn btn-secondary">Batal</button>
+        <button type="submit" class="btn btn-primary" id="pdSubmitBtn">Simpan</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════
+     MODAL: UPDATE STATUS
+     ══════════════════════════════════════════ -->
+<div id="statusModal" class="modal-overlay">
+  <div class="modal-box modal-box-sm">
+    <div class="modal-header">
+      <h3>Update Status</h3>
+      <button class="modal-close" onclick="closeStatusModal()">×</button>
+    </div>
+    <form id="statusForm" onsubmit="handleStatusSubmit(this); return false;">
+      <div class="modal-body">
+        <label>ID</label>
+        <input type="text" id="fStatusId" name="pdId" readonly>
+        <input type="hidden" name="token"      id="statusToken">
+        <input type="hidden" name="orderIndex" id="fStatusOrderIndex">
+
+        <label>Nama Produk / Project</label>
+        <input type="text" id="fStatusNamaProduk" readonly>
+
+        <label>Tahap yang di-update</label>
+        <input type="text" id="fStatusStepName" readonly style="font-weight:700;color:var(--c-purple)">
+
+        <label>Result <span style="color:var(--c-red)">*</span></label>
+        <div class="radio-row">
+          <label><input type="radio" name="result" value="OK" checked> OK</label>
+          <label><input type="radio" name="result" value="Not OK"> Not OK</label>
+        </div>
+
+        <label>Keterangan</label>
+        <textarea id="fStatusKeterangan" name="keterangan" rows="4" placeholder="Catatan opsional…"></textarea>
+      </div>
+      <div class="modal-footer">
+        <button type="button" onclick="closeStatusModal()" class="btn btn-secondary">Batal</button>
+        <button type="submit" class="btn btn-primary">Simpan Status</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════
+     MODAL: HISTORY / RIWAYAT STATUS
+     ══════════════════════════════════════════ -->
+<div id="historyModal" class="modal-overlay">
+  <div class="modal-box modal-box-md">
+    <div class="modal-header">
+      <div>
+        <h3 id="historyModalTitle">Riwayat Status</h3>
+        <div style="font-size:11px;color:var(--c-gray-muted);margin-top:2px" id="historyModalSub"></div>
+      </div>
+      <button class="modal-close" onclick="closeHistoryModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <div id="historyContent">
+        <div class="empty-state" style="padding:24px">Memuat riwayat...</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════
+     MODAL: EDIT REQUEST
+     ══════════════════════════════════════════ -->
+<div id="editModal" class="modal-overlay">
+  <div class="modal-box modal-box-md">
+    <div class="modal-header">
+      <h3>Edit Request</h3>
+      <button class="modal-close" onclick="closeEditModal()">×</button>
+    </div>
+    <form id="editForm" onsubmit="handleEditSubmit(this); return false;" enctype="multipart/form-data">
+      <div class="modal-body">
+        <input type="hidden" name="token" id="editToken">
+        <input type="hidden" name="id"    id="editId">
+
+        <label>ID</label>
+        <input type="text" id="editIdDisplay" readonly>
+
+        <label>Nama Produk</label>
+        <input type="text" id="editNamaProduk" readonly style="color:var(--c-gray-muted)">
+        <p class="field-hint">Nama Produk dan Kategori tidak dapat diubah setelah request dibuat.</p>
+
+        <label>Deskripsi / Keterangan</label>
+        <textarea name="deskripsi" id="editDeskripsi" rows="3"></textarea>
+
+        <label>Estimasi Qty</label>
+        <input type="number" name="estimasiQty" id="editEstimasiQty" min="0" step="1">
+
+        <label>Estimasi Order Date</label>
+        <input type="date" name="estimasiOrder" id="editEstimasiOrder">
+
+        <label>Ganti LPP Document (opsional)</label>
+        <input type="file" name="lppFile" accept=".pdf,image/*,application/*">
+        <p class="field-hint">Kosongkan jika tidak ingin mengganti file yang sudah ada.</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" onclick="closeEditModal()" class="btn btn-secondary">Batal</button>
+        <button type="submit" class="btn btn-primary">Simpan Perubahan</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════
+     MODAL: CANCEL REQUEST
+     ══════════════════════════════════════════ -->
+<div id="cancelModal" class="modal-overlay">
+  <div class="modal-box modal-box-sm">
+    <div class="modal-header">
+      <h3>Batalkan Request</h3>
+      <button class="modal-close" onclick="closeCancelModal()">×</button>
+    </div>
+    <form id="cancelForm" onsubmit="handleCancelSubmit(this); return false;">
+      <div class="modal-body">
+        <input type="hidden" name="token" id="cancelToken">
+        <input type="hidden" name="id"    id="cancelId">
+
+        <div style="background:#FFF1F2;border:1px solid #FECDD3;border-radius:var(--radius-md);padding:12px;margin-bottom:12px">
+          <strong id="cancelIdDisplay" style="color:var(--c-red-dark)"></strong>
+          <div id="cancelProdukDisplay" style="font-size:12px;color:var(--c-gray-muted);margin-top:2px"></div>
+        </div>
+
+        <label>Alasan Pembatalan <span style="color:var(--c-red)">*</span></label>
+        <textarea name="reason" id="cancelReason" rows="3" required placeholder="Jelaskan alasan pembatalan…"></textarea>
+      </div>
+      <div class="modal-footer">
+        <button type="button" onclick="closeCancelModal()" class="btn btn-secondary">Kembali</button>
+        <button type="submit" class="btn btn-danger">Ya, Batalkan</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════
+     MODAL: KONFIRMASI UMUM
+     ══════════════════════════════════════════ -->
+<div id="confirmModal" class="modal-overlay">
+  <div class="modal-box modal-box-sm">
+    <div class="modal-body" style="padding-top:24px">
+      <div class="confirm-icon" id="confirmIcon">⚠️</div>
+      <div class="confirm-msg"  id="confirmMsg">Apakah Anda yakin?</div>
+      <div class="confirm-sub"  id="confirmSub"></div>
+    </div>
+    <div class="modal-footer" style="justify-content:center;gap:12px">
+      <button onclick="closeConfirmModal()" class="btn btn-secondary" style="min-width:100px">Batal</button>
+      <button id="confirmOkBtn" class="btn btn-primary" style="min-width:100px">Ya, Lanjutkan</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════
+     MODAL: ADMIN PANEL
+     ══════════════════════════════════════════ -->
+<div id="adminModal" class="modal-overlay">
+  <div class="modal-box modal-box-xl">
+    <div class="modal-header">
+      <h3>Admin Panel</h3>
+      <button class="modal-close" onclick="closeAdminModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="admin-tabs">
+        <button class="admin-tab active" onclick="switchAdminTab('users',this)">Users</button>
+        <button class="admin-tab"        onclick="switchAdminTab('config',this)">Config</button>
+        <button class="admin-tab"        onclick="switchAdminTab('logs',this)">App Log</button>
+      </div>
+
+      <!-- Tab: Users -->
+      <div id="adminTabUsers" class="admin-panel-section active">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <span style="font-size:12px;color:var(--c-gray-muted)" id="adminUserCount"></span>
+          <button onclick="openAddUserForm()" class="btn btn-primary btn-sm">+ Tambah User</button>
+        </div>
+
+        <!-- Form tambah user (tersembunyi) -->
+        <div id="addUserForm" style="display:none;background:#F9FAFB;border:1px solid var(--c-border);border-radius:var(--radius-md);padding:14px;margin-bottom:12px">
+          <div style="font-weight:700;margin-bottom:10px;font-size:13px">Tambah User Baru</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            <div>
+              <label style="margin-top:0">Email</label>
+              <input type="email" id="newUserEmail" placeholder="user@domain.com">
+            </div>
+            <div>
+              <label style="margin-top:0">Nama</label>
+              <input type="text" id="newUserName" placeholder="Nama lengkap">
+            </div>
+            <div>
+              <label style="margin-top:0">Role</label>
+              <select id="newUserRole">
+                <option value="viewer">Viewer</option>
+                <option value="requester">Requester</option>
+                <option value="approver">Approver</option>
+                <option value="admin">Admin</option>
+              </select>
+            </div>
+            <div>
+              <label style="margin-top:0">Status</label>
+              <select id="newUserStatus">
+                <option value="Active">Active</option>
+                <option value="Inactive">Inactive</option>
+              </select>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:12px">
+            <button onclick="submitAddUser()" class="btn btn-primary btn-sm">Simpan</button>
+            <button onclick="document.getElementById('addUserForm').style.display='none'" class="btn btn-secondary btn-sm">Batal</button>
+          </div>
+        </div>
+
+        <div style="overflow-x:auto">
+          <table class="users-table" id="adminUsersTable">
+            <thead>
+              <tr>
+                <th>Email</th><th>Nama</th><th>Role</th><th>Status</th>
+                <th>Last Login</th><th>Token Expired</th><th>Aksi</th>
+              </tr>
+            </thead>
+            <tbody id="adminUsersTbody">
+              <tr><td colspan="7" style="text-align:center;padding:20px;color:var(--c-gray-muted)">Memuat...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Tab: Config -->
+      <div id="adminTabConfig" class="admin-panel-section">
+        <div style="margin-bottom:12px">
+          <p style="font-size:12px;color:var(--c-gray-muted)">
+            Konfigurasi ini mengoverride nilai default. Perubahan berlaku setelah cache expired (~10 menit) atau refresh.
+          </p>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">
+          <div>
+            <label style="margin-top:0">Key</label>
+            <input type="text" id="cfgKey" placeholder="Contoh: CIRCLE_EMAIL_13">
+          </div>
+          <div>
+            <label style="margin-top:0">Value</label>
+            <input type="text" id="cfgValue" placeholder="Nilai config">
+          </div>
+        </div>
+        <button onclick="submitAdminConfig()" class="btn btn-primary btn-sm" style="margin-bottom:14px">Simpan Config</button>
+
+        <div style="overflow-x:auto">
+          <table class="config-table" id="adminConfigTable">
+            <thead>
+              <tr><th>Key</th><th>Value</th></tr>
+            </thead>
+            <tbody id="adminConfigTbody">
+              <tr><td colspan="2" style="text-align:center;padding:20px;color:var(--c-gray-muted)">Memuat...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Tab: App Log -->
+      <div id="adminTabLogs" class="admin-panel-section">
+        <div style="overflow-x:auto">
+          <table class="logs-table" id="adminLogsTable">
+            <thead>
+              <tr><th>Waktu</th><th>User</th><th>Action</th><th>Detail</th><th>Status</th></tr>
+            </thead>
+            <tbody id="adminLogsTbody">
+              <tr><td colspan="5" style="text-align:center;padding:20px;color:var(--c-gray-muted)">Memuat...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Toast container -->
+<div id="toast-container"></div>
