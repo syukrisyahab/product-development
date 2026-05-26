@@ -31,6 +31,7 @@ function doGet(e) {
   t.isAllowed = true;
   t.userRole  = access.role  || '';
   t.token     = token;
+  t.loginUrl  = getConfig_().DASHBOARD_URL || '';
 
   return t.evaluate()
     .setTitle('Product Development Dashboard')

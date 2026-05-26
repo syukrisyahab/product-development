@@ -76,11 +76,15 @@
         </div>
 
         <label>Keterangan</label>
-        <textarea id="fStatusKeterangan" name="keterangan" rows="4" placeholder="Catatan opsional…"></textarea>
+        <textarea id="fStatusKeterangan" name="keterangan" rows="3" placeholder="Catatan opsional…"></textarea>
+
+        <label>Target Selesai <span style="font-weight:400;color:var(--c-gray-muted)">(opsional)</span></label>
+        <input type="date" name="commitmentDate" id="fStatusCommitmentDate">
+        <p class="field-hint">Estimasi kapan step ini / proses berikutnya akan selesai. Jika dilewati akan otomatis ditandai.</p>
       </div>
       <div class="modal-footer">
         <button type="button" onclick="closeStatusModal()" class="btn btn-secondary">Batal</button>
-        <button type="submit" class="btn btn-primary">Simpan Status</button>
+        <button type="submit" id="statusSubmitBtn" class="btn btn-primary">Simpan Status</button>
       </div>
     </form>
   </div>

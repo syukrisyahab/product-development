@@ -47,6 +47,28 @@ function errResponse_(message, code) {
  * Hitung status SLA.
  * Return: 'final' | 'new' | 'overdue' | 'warning' | 'ok'
  */
+/**
+ * Kembalikan generic Apps Script URL (tanpa prefix workspace /a/macros/domain/).
+ * ScriptApp.getService().getUrl() di workspace environment mengembalikan URL workspace
+ * yang tidak bisa diakses user non-workspace → strip prefix-nya.
+ *
+ * Workspace : https://script.google.com/a/macros/rbg.co.id/s/DEPLOY_ID/exec
+ * Generic   : https://script.google.com/macros/s/DEPLOY_ID/exec
+ */
+function getGenericAppUrl_() {
+  const cfg = getConfig_();
+  const raw = (cfg.APP_URL || '').trim() || ScriptApp.getService().getUrl();
+  return toGenericUrl_(raw);
+}
+
+function toGenericUrl_(url) {
+  return (url || '').replace(
+    /https:\/\/script\.google\.com\/a\/macros\/[^/]+\/s\//,
+    'https://script.google.com/macros/s/'
+  );
+}
+
+
 function getSlaStatus_(lastUpdateDate, slaDays, isNew, isFinal) {
   if (isFinal) return 'final';
   if (isNew)   return 'new';

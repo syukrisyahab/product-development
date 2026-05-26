@@ -10,11 +10,12 @@
 <!-- Server data — di-inject oleh doGet() -->
 <script>
   const SERVER = {
-    userEmail: <?= JSON.stringify(userEmail) ?>,
-    userName:  <?= JSON.stringify(userName) ?>,
-    isAllowed: <?= isAllowed ? true : false ?>,
-    userRole:  <?= JSON.stringify(userRole) ?>,
-    token:     <?= JSON.stringify(token) ?>
+    userEmail: <?!= JSON.stringify(userEmail) ?>,
+    userName:  <?!= JSON.stringify(userName) ?>,
+    isAllowed: <?!= JSON.stringify(isAllowed) ?>,
+    userRole:  <?!= JSON.stringify(userRole) ?>,
+    token:     <?!= JSON.stringify(token) ?>,
+    loginUrl:  <?!= JSON.stringify(loginUrl) ?>
   };
 </script>
 

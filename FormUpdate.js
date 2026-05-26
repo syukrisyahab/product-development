@@ -13,7 +13,9 @@ function submitPDForm(formObj) {
     if (!au.allowed || !au.email) return errResponse_('Akses ditolak.', 'NOT_ALLOWED');
 
     const role = (au.role || '').toLowerCase();
-    if (role === 'viewer') return errResponse_('Role Viewer tidak bisa membuat request.', 'FORBIDDEN');
+    if (role !== 'requester' && role !== 'admin') {
+      return errResponse_('Hanya requester yang dapat membuat request PD.', 'FORBIDDEN');
+    }
 
     const namaProduk  = (formObj.namaProduk   || '').toString().trim();
     const kategori    = (formObj.kategori     || '').toString().trim();
@@ -48,11 +50,12 @@ function submitPDForm(formObj) {
       const ymd = Utilities.formatDate(now, Session.getScriptTimeZone(), 'yyyyMMdd');
       idStr     = 'PD-' + ymd + '-' + ('000' + newSeq).slice(-3);
 
-      // Upload LPP ke Drive
+      // Upload LPP ke Drive — share "Anyone with link" agar non-workspace user bisa buka
       if (lppBlob && lppBlob.getName) {
         const folder   = DriveApp.getFolderById(cfg.LPP_FOLDER_ID || LPP_FOLDER_ID_DEFAULT);
         const fileName = idStr + ' - ' + lppBlob.getName();
         const file     = folder.createFile(lppBlob.copyBlob().setName(fileName));
+        file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
         lppUrl         = file.getUrl();
       }
 
@@ -94,24 +97,65 @@ function submitPDStatus(formObj) {
     const au = getActiveUser_((formObj && formObj.token) ? formObj.token : '');
     if (!au.allowed || !au.email) return errResponse_('Akses ditolak.', 'NOT_ALLOWED');
 
-    const role = (au.role || '').toLowerCase();
-    if (role === 'viewer' || role === 'requester') {
-      return errResponse_('Role Anda tidak bisa melakukan update status.', 'FORBIDDEN');
-    }
-
-    const id         = (formObj.pdId       || '').toString().trim();
+    const role       = (au.role || '').toLowerCase();
+    const id         = (formObj.pdId          || '').toString().trim();
     const orderIndex = Number(formObj.orderIndex || 0);
-    const result     = (formObj.result     || '').toString().trim();
-    const keterangan = (formObj.keterangan || '').toString().trim();
+    const result     = (formObj.result         || '').toString().trim();
+    const keterangan = (formObj.keterangan     || '').toString().trim();
+    const commitRaw  = (formObj.commitmentDate || '').toString().trim();
 
     if (!id || !orderIndex) return errResponse_('ID atau OrderIndex tidak valid.', 'VALIDATION');
     if (!result)            return errResponse_('Result (OK / Not OK) harus dipilih.', 'VALIDATION');
 
     const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+    // ── Validasi PIC: hanya PIC yang ditunjuk di MasterStatus (atau admin) ──
+    if (role !== 'admin') {
+      const shStat = ss.getSheetByName(SHEET_STATUS);
+      if (shStat && shStat.getLastRow() >= 2) {
+        const statVals = shStat.getRange(2, 1, shStat.getLastRow() - 1, 3).getValues();
+        let picEmail = '';
+        for (let i = 0; i < statVals.length; i++) {
+          if (Number(statVals[i][1]) === orderIndex) {
+            picEmail = (statVals[i][2] || '').toString().toLowerCase().trim();
+            break;
+          }
+        }
+        if (picEmail && picEmail !== au.email) {
+          return errResponse_('Anda bukan PIC untuk step ini. Hanya ' + picEmail + ' yang dapat melakukan update.', 'FORBIDDEN');
+        }
+      }
+    }
+
     const sh = ss.getSheetByName(SHEET_PD_STATUS);
     if (!sh) return errResponse_("Sheet 'PD_StatusLog' tidak ditemukan.", 'SHEET_NOT_FOUND');
 
-    sh.appendRow([id, orderIndex, result, new Date(), keterangan, au.email]);
+    // ── LockService: cegah race-condition & double-submit ──
+    const lock = LockService.getScriptLock();
+    lock.waitLock(10000);
+    try {
+      // Cek duplikat: entry yang sama dalam 30 detik terakhir
+      const lastRow = sh.getLastRow();
+      if (lastRow >= 2) {
+        const scanStart = Math.max(2, lastRow - 20);
+        const scanLen   = lastRow - scanStart + 1;
+        const recent    = sh.getRange(scanStart, 1, scanLen, 4).getValues();
+        const nowMs     = Date.now();
+        for (let i = recent.length - 1; i >= 0; i--) {
+          const rId  = (recent[i][0] || '').toString().trim();
+          const rIdx = Number(recent[i][1]);
+          const rTs  = recent[i][3] instanceof Date ? recent[i][3].getTime() : 0;
+          if (rId === id && rIdx === orderIndex && (nowMs - rTs) < 30000) {
+            return errResponse_('Duplikat: status step ini baru saja disimpan. Tunggu sebentar.', 'DUPLICATE');
+          }
+        }
+      }
+
+      const commitmentDate = commitRaw ? new Date(commitRaw) : '';
+      sh.appendRow([id, orderIndex, result, new Date(), keterangan, au.email, commitmentDate]);
+    } finally {
+      lock.releaseLock();
+    }
 
     sendPDStatusEmail_({ id, orderIndex, result, note: keterangan, updatedBy: au.email });
     sendPDNextPicEmail_({ id, orderIndex, result, updatedBy: au.email });
@@ -172,6 +216,7 @@ function updatePDForm(formObj) {
       const file   = folder.createFile(
         formObj.lppFile.copyBlob().setName(id + '_rev_' + formObj.lppFile.getName())
       );
+      file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
       sh.getRange(foundRow, 10).setValue(file.getUrl());
     }
 
@@ -253,7 +298,8 @@ function exportPDData(token) {
       'ID', 'Tanggal Create', 'Requester Email', 'Requester Name',
       'Nama Produk', 'Kategori', 'Deskripsi', 'Estimasi Qty',
       'Estimasi Order Date', 'LPP Link', 'Status', 'Last Status Update',
-      'Last Updated By', 'Status Note', 'Decision Status', 'SLA Status'
+      'Last Updated By', 'Status Note', 'Decision Status', 'SLA Status',
+      'Target Selesai', 'Commitment Overdue'
     ];
 
     const csvRows = rows.map(r =>
@@ -261,7 +307,8 @@ function exportPDData(token) {
         r.id, r.tanggalCreate, r.requesterEmail, r.requesterName,
         r.namaProduk, r.kategori, r.deskripsi, r.estimasiQty,
         r.estimasiOrder, r.lppLink, r.status, r.lastStatusUpdate,
-        r.lastUpdatedBy, r.statusNote, r.decisionStatus, r.slaStatus
+        r.lastUpdatedBy, r.statusNote, r.decisionStatus, r.slaStatus,
+        r.commitmentDate || '', r.commitmentOverdue ? 'Ya' : ''
       ].map(v => '"' + String(v || '').replace(/"/g, '""') + '"').join(',')
     );
 

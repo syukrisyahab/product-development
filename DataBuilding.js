@@ -23,7 +23,6 @@ function buildPDData_(userEmailRaw, userRole) {
   const logValues    = shLog    ? shLog.getDataRange().getValues()    : [];
 
   const currentUserEmail = (userEmailRaw || '').toString().toLowerCase().trim();
-  const isRequesterRole  = (userRole || '').toLowerCase() === 'requester';
   const cfg              = getConfig_();
   const slaDefaultDays   = Number(cfg.SLA_DEFAULT_DAYS) || 3;
 
@@ -61,15 +60,16 @@ function buildPDData_(userEmailRaw, userRole) {
       const r  = logValues[i];
       const id = r[0]; if (!id) continue;
 
-      const idx      = Number(r[1]) || 0;
-      const result   = (r[2] || '').toString();
-      const tanggal  = r[3] instanceof Date ? r[3] : null;
-      const ket      = r[4] || '';
-      const updBy    = r[5] || '';
+      const idx        = Number(r[1]) || 0;
+      const result     = (r[2] || '').toString();
+      const tanggal    = r[3] instanceof Date ? r[3] : null;
+      const ket        = r[4] || '';
+      const updBy      = r[5] || '';
+      const commitDate = r[6] instanceof Date ? r[6] : null; // col G
 
       if (!logMap[id]) logMap[id] = { byIndex: {}, maxIndex: 0 };
       const lm       = logMap[id];
-      const newEntry = { id, orderIndex: idx, result, tanggal, keterangan: ket, updatedBy: updBy };
+      const newEntry = { id, orderIndex: idx, result, tanggal, keterangan: ket, updatedBy: updBy, commitmentDate: commitDate };
 
       const prev = lm.byIndex[idx];
       if (!prev || (tanggal && prev.tanggal && tanggal > prev.tanggal)) {
@@ -86,9 +86,6 @@ function buildPDData_(userEmailRaw, userRole) {
     const id = r[0]; if (!id) continue;
 
     const requesterEmail = (r[2] || '').toString().toLowerCase().trim();
-
-    // RBAC: role=requester hanya lihat data milik sendiri
-    if (isRequesterRole && requesterEmail !== currentUserEmail) continue;
 
     const tanggalCreate  = r[1] instanceof Date ? Utilities.formatDate(r[1], TZ, 'yyyy-MM-dd HH:mm') : (r[1] || '');
     const requesterName  = r[3] || '';
@@ -158,6 +155,12 @@ function buildPDData_(userEmailRaw, userRole) {
     const stepSla  = (statusMap[currentIndex] || {}).slaDays || slaDefaultDays;
     const slaStatus = isArchived ? 'cancelled' : getSlaStatus_(lastStatusDateRaw, stepSla, isNew, isFinal);
 
+    // ── Commitment date ──
+    // Prioritas: entry current step (redo) → entry step sebelumnya (handoff deadline dari PIC lama)
+    let commitmentDateRaw  = (currentEntry && currentEntry.commitmentDate) ? currentEntry.commitmentDate : null;
+    const commitmentDate   = commitmentDateRaw ? Utilities.formatDate(commitmentDateRaw, TZ, 'yyyy-MM-dd') : '';
+    const commitmentOverdue = !!(commitmentDateRaw && !isFinal && !isArchived && new Date() > commitmentDateRaw);
+
     rows.push({
       id,
       tanggalCreate,
@@ -169,18 +172,20 @@ function buildPDData_(userEmailRaw, userRole) {
       estimasiQty,
       estimasiOrder,
       lppLink,
-      status:          statusName,
+      status:           statusName,
       lastStatusUpdate: lastStatusDate,
       lastUpdatedBy,
       statusNote,
       decisionStatus,
       currentIndex,
-      nextIndex:       nextIndexObj ? nextIndexObj.index : 0,
-      nextStatusName:  nextIndexObj ? nextIndexObj.name  : '',
+      nextIndex:        nextIndexObj ? nextIndexObj.index : 0,
+      nextStatusName:   nextIndexObj ? nextIndexObj.name  : '',
       canUpdate,
       slaStatus,
       isArchived,
-      cancelReason
+      cancelReason,
+      commitmentDate,
+      commitmentOverdue
     });
   }
 
@@ -264,12 +269,13 @@ function getPDHistory(id, token) {
     if ((r[0] || '').toString().trim() !== idStr) continue;
     const idx = Number(r[1]) || 0;
     history.push({
-      orderIndex: idx,
-      statusName: nameMap[idx] || ('Step ' + idx),
-      result:     (r[2] || '').toString(),
-      tanggal:    r[3] instanceof Date ? Utilities.formatDate(r[3], TZ, 'yyyy-MM-dd HH:mm') : String(r[3] || ''),
-      keterangan: (r[4] || '').toString(),
-      updatedBy:  (r[5] || '').toString()
+      orderIndex:     idx,
+      statusName:     nameMap[idx] || ('Step ' + idx),
+      result:         (r[2] || '').toString(),
+      tanggal:        r[3] instanceof Date ? Utilities.formatDate(r[3], TZ, 'yyyy-MM-dd HH:mm') : String(r[3] || ''),
+      keterangan:     (r[4] || '').toString(),
+      updatedBy:      (r[5] || '').toString(),
+      commitmentDate: r[6] instanceof Date ? Utilities.formatDate(r[6], TZ, 'yyyy-MM-dd') : ''
     });
   }
 

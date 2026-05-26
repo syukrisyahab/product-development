@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(clasp push *)",
+      "Bash(clasp deploy *)",
+      "Bash(clasp deployments *)",
+      "Bash(clasp undeploy *)",
+      "Bash(dir \"C:\\\\Users\\\\USER\\\\OneDrive\\\\Documents\" /B)"
+    ]
+  }
+}

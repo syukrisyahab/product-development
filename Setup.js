@@ -28,7 +28,7 @@ const SETUP_SHEETS_ = [
   },
   {
     name: SHEET_PD_STATUS,
-    headers: ['ID', 'OrderIndex', 'Result', 'TanggalUpdate', 'Keterangan', 'UpdatedBy']
+    headers: ['ID', 'OrderIndex', 'Result', 'TanggalUpdate', 'Keterangan', 'UpdatedBy', 'CommitmentDate']
   },
   {
     name: SHEET_USERS,
@@ -55,7 +55,20 @@ const DEFAULT_CONFIG_ROWS_ = [
   ['TOKEN_EXPIRY_DAYS', '30'],
   ['SLA_DEFAULT_DAYS',  '3'],
   ['INTERNAL_DOMAIN_1', '@rbg.co.id'],
-  ['INTERNAL_DOMAIN_2', '@rbshera.co.id']
+  ['INTERNAL_DOMAIN_2', '@rbshera.co.id'],
+  // Circle email — penerima notifikasi semua event PD
+  ['CIRCLE_EMAIL_1',    'ppic.board@rbg.co.id'],
+  ['CIRCLE_EMAIL_2',    'robby.priandra@rbg.co.id'],
+  ['CIRCLE_EMAIL_3',    'nanda.dewangga@rbg.co.id'],
+  ['CIRCLE_EMAIL_4',    'novita.dian@rbg.co.id'],
+  ['CIRCLE_EMAIL_5',    'nurus.safingi@rbg.co.id'],
+  ['CIRCLE_EMAIL_6',    'lambok.sinaga@rbg.co.id'],
+  ['CIRCLE_EMAIL_7',    'nopriandi.wasatha@rbg.co.id'],
+  ['CIRCLE_EMAIL_8',    'apud.mahpudin@rbg.co.id'],
+  ['CIRCLE_EMAIL_9',    'galih.murti@rbg.co.id'],
+  ['CIRCLE_EMAIL_10',   'rendra.fatmaja@rbg.co.id'],
+  ['CIRCLE_EMAIL_11',   'ayu.pratiwi@rbshera.co.id'],
+  ['CIRCLE_EMAIL_12',   'nova.andi@rbg.co.id']
 ];
 
 const HEADER_BG_COLOR_   = '#1F6B3E'; // hijau
@@ -219,4 +232,121 @@ function styleHeader_(sheet) {
     // autoResize bisa gagal di sheet yang sangat baru — tidak kritikal
     Logger.log('   [warn] autoResize gagal untuk ' + sheet.getName() + ': ' + e);
   }
+}
+
+
+// ─────────────────────────────────────────────────
+// SETUP CIRCLE + USERS
+// ─────────────────────────────────────────────────
+
+/**
+ * Role assignment:
+ *   approver → email yang terdaftar sebagai PIC_Email di MasterStatus (col C)
+ *   viewer   → semua circle email lainnya
+ *   requester / admin → hanya bisa di-set manual oleh admin, tidak disentuh fungsi ini
+ *
+ * Lalu:
+ *   A. Tambahkan email yang belum ada ke Config sheet sebagai CIRCLE_EMAIL_*
+ *   B. Tambahkan email yang belum ada ke Users sheet dengan role yang tepat
+ *   C. Email yang SUDAH ADA di Users sheet tidak diubah sama sekali
+ *
+ * Aman dijalankan berkali-kali.
+ * Cara pakai: Apps Script Editor → pilih setupCircleAndUsers → Run
+ */
+function setupCircleAndUsers() {
+  const ss       = SpreadsheetApp.getActiveSpreadsheet();
+  const shConfig = ss.getSheetByName(SHEET_CONFIG);
+  const shUsers  = ss.getSheetByName(SHEET_USERS);
+  const shStatus = ss.getSheetByName(SHEET_STATUS);
+
+  if (!shConfig) { Logger.log('ERROR: Config sheet tidak ditemukan.'); return; }
+  if (!shUsers)  { Logger.log('ERROR: Users sheet tidak ditemukan.'); return; }
+
+  Logger.log('══ setupCircleAndUsers() START ══');
+
+  // ── 1. Kumpulkan PIC_Email dari MasterStatus → ini yang dapat role approver ──
+  const picEmails = new Set();
+  if (shStatus && shStatus.getLastRow() >= 2) {
+    shStatus.getRange(2, 1, shStatus.getLastRow() - 1, 3).getValues().forEach(r => {
+      const em = (r[2] || '').toString().toLowerCase().trim();
+      if (em && em.includes('@')) picEmails.add(em);
+    });
+  }
+  Logger.log('   PIC emails dari MasterStatus: ' + picEmails.size);
+
+  // ── 2. Kumpulkan semua circle email (default + PIC) ──
+  const allEmails = new Set();
+  PD_CIRCLE_EMAILS_DEFAULT.forEach(e => {
+    const em = e.toString().toLowerCase().trim();
+    if (em) allEmails.add(em);
+  });
+  picEmails.forEach(em => allEmails.add(em));
+  Logger.log('   Total email dikumpulkan: ' + allEmails.size);
+
+  // ── 3. Sinkronisasi ke Config (CIRCLE_EMAIL_*) ──
+  const existingCircleEmails = new Set();
+  let   maxCircleIdx = 0;
+
+  if (shConfig.getLastRow() >= 2) {
+    shConfig.getRange(2, 1, shConfig.getLastRow() - 1, 2).getValues().forEach(r => {
+      const key = (r[0] || '').toString().trim();
+      const val = (r[1] || '').toString().toLowerCase().trim();
+      if (key.startsWith('CIRCLE_EMAIL')) {
+        if (val) existingCircleEmails.add(val);
+        const m = /CIRCLE_EMAIL_(\d+)/i.exec(key);
+        if (m) maxCircleIdx = Math.max(maxCircleIdx, parseInt(m[1], 10));
+      }
+    });
+  }
+
+  let addedCircle = 0;
+  allEmails.forEach(email => {
+    if (!existingCircleEmails.has(email)) {
+      maxCircleIdx++;
+      shConfig.appendRow(['CIRCLE_EMAIL_' + maxCircleIdx, email]);
+      existingCircleEmails.add(email);
+      addedCircle++;
+      Logger.log('   [circle +] CIRCLE_EMAIL_' + maxCircleIdx + ' = ' + email);
+    } else {
+      Logger.log('   [circle =] sudah ada: ' + email);
+    }
+  });
+
+  // ── 4. Sinkronisasi ke Users sheet ──
+  // Kumpulkan email yang sudah ada agar tidak ditimpa
+  const existingUsers = new Set();
+  if (shUsers.getLastRow() >= 2) {
+    shUsers.getRange(2, 1, shUsers.getLastRow() - 1, 1).getValues().forEach(r => {
+      const em = (r[0] || '').toString().toLowerCase().trim();
+      if (em) existingUsers.add(em);
+    });
+  }
+
+  let addedUsers = 0;
+  allEmails.forEach(email => {
+    if (existingUsers.has(email)) {
+      Logger.log('   [user =] sudah ada (tidak diubah): ' + email);
+      return;
+    }
+    // PIC MasterStatus → approver, sisanya → viewer
+    const role = picEmails.has(email) ? 'approver' : 'viewer';
+    const name = nameFromEmail_(email);
+    shUsers.appendRow([email, name, role, '', '', '', '', 'Active']);
+    existingUsers.add(email);
+    addedUsers++;
+    Logger.log('   [user +] ' + email + ' | role: ' + role + ' | nama: ' + name);
+  });
+
+  invalidateConfigCache_();
+  Logger.log('══ SELESAI: ' + addedCircle + ' circle baru, ' + addedUsers + ' user baru ══');
+}
+
+
+/**
+ * Derivasi nama dari email.
+ * Contoh: robby.priandra@rbg.co.id → "Robby Priandra"
+ */
+function nameFromEmail_(email) {
+  const local = (email || '').split('@')[0] || '';
+  return local.split('.').map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
 }

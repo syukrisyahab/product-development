@@ -264,9 +264,9 @@ function issueToken_(e) {
 
     logActivity_(email, 'issueToken', 'Expires: ' + formatDateOnly_(expiredAt));
 
-    // Gunakan APP_URL dari Config (URL generik tanpa prefix workspace domain)
-    // agar non-workspace user bisa diakses. Fallback ke ScriptApp URL jika belum dikonfigurasi.
-    const dash      = redirect || cfg.APP_URL || ScriptApp.getService().getUrl();
+    // Selalu gunakan URL generik (/macros/s/...) agar user non-workspace bisa akses.
+    // toGenericUrl_ menghapus prefix /a/macros/domain.com/ dari URL manapun.
+    const dash      = toGenericUrl_(redirect) || getGenericAppUrl_();
     const targetUrl = dash + (dash.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(accessToken);
 
     // target="_top" memastikan link dibuka di top-level frame.
